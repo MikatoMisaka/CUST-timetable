@@ -275,9 +275,15 @@ html.tt-edu #root > div,
 html.tt-edu [data-shell] {
   background: transparent !important;
 }
+/* 外层路由栈（#root > div > .z-[35] > .z-[40]）在 shell 之外，且入场动画会给它写
+   inline 的 visibility:visible，普通声明压不住，所以这里必须 !important，并且要连
+   后代一起隐藏 —— 只隐藏容器时，子孙层自己的 inline visible 会把它重新显示出来，
+   结果整页盖住下层原生 WebView（课表来源页挡住教务登录页的真凶）。 */
 html.tt-edu [data-shell] > *:not([data-edu-keep]),
-html.tt-edu #root > div > *:not([data-shell]) {
-  visibility: hidden;
+html.tt-edu [data-shell] > *:not([data-edu-keep]) *,
+html.tt-edu #root > div > *:not([data-shell]),
+html.tt-edu #root > div > *:not([data-shell]) * {
+  visibility: hidden !important;
 }
 html.tt-edu [data-edu-keep=''] [data-veil-host] {
   background: transparent !important;

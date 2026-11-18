@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Page, StickyHead, BackButton, TopBar, PrimaryButton, tint, WD, Tick } from './ui'
+import { Page, StickyHead, BackButton, TopBar, PrimaryButton, TextAction, tint, WD, Tick } from './ui'
 import { store, useStore } from './store'
 import { addDays, fmtMinutes, weekOf, dateOf } from '../domain/dates'
 import { todayStr } from './semester'
@@ -224,6 +224,9 @@ export function CalendarIntroPage({ onDone }: { onDone: () => void }) {
       </div>
       <div className="flex-none px-5 pt-2 pb-[max(22px,env(safe-area-inset-bottom))]">
         <PrimaryButton busy={busy} onClick={() => void go()}>{denied ? '去系统设置允许' : '开启同步'}</PrimaryButton>
+        <div className="mt-1 flex justify-center">
+          <TextAction tone="mute" onClick={onDone}>以后再说</TextAction>
+        </div>
       </div>
     </Page>
   )

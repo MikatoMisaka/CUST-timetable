@@ -14,6 +14,7 @@ export type EduSystemId =
   | 'wisedu'
   | 'south_soft'
   | 'chaoxing'
+  | 'cust'
 
 export const SYSTEM_LABEL: Record<EduSystemId, string> = {
   zhengfang_new: '正方教务',
@@ -26,12 +27,13 @@ export const SYSTEM_LABEL: Record<EduSystemId, string> = {
   wisedu: '金智教务',
   south_soft: '南软教务',
   chaoxing: '超星',
+  cust: '长春理工',
 }
 
 export const isEduSystem = (s: string): s is EduSystemId => s in SYSTEM_LABEL
 
 /** 有专用抓取脚本的系统；其余走页面表格通用解析 */
-export const SCRIPTED: ReadonlySet<EduSystemId> = new Set<EduSystemId>(['zhengfang_new', 'qiangzhi'])
+export const SCRIPTED: ReadonlySet<EduSystemId> = new Set<EduSystemId>(['zhengfang_new', 'qiangzhi', 'cust'])
 
 const URL_MARKS: [RegExp, EduSystemId][] = [
   [/\/jwglxt\//i, 'zhengfang_new'],
@@ -41,6 +43,7 @@ const URL_MARKS: [RegExp, EduSystemId][] = [
   [/wisedu|\/ehall\/|\.ehall\./i, 'wisedu'],
   [/southsoft|\/njw2017\//i, 'south_soft'],
   [/chaoxing\.com/i, 'chaoxing'],
+  [/jwgl\.cust\.edu\.cn/i, 'cust'],
 ]
 
 /** 先看地址；地址认不出再看学校索引给的系统类型 */
@@ -52,6 +55,9 @@ export function detectSystem(url: string, hint?: EduSystemId | null): EduSystemI
 /** 当前页是不是课表页：地址里有课表路径，或标题带「课表」 */
 export function isTimetablePage(system: EduSystemId | null, url: string, title: string): boolean {
   if (system === 'zhengfang_new') return /kbcx|xskbcx/i.test(url)
+  /* 长理课表页标题是「教学信息一体化服务平台」，地址是 /Student：两个通用判据都不命中。
+     一站式门户（portal.cust.edu.cn）也算：登录完停在那儿，得允许用户点“导入”把这一跳补上 */
+  if (system === 'cust') return /\/Student(\/|\?|#|$)/i.test(url) || /portal\.cust\.edu\.cn/i.test(url)
   if (/课表|课程表|上课安排/.test(title)) return true
   return /\b(kb|kcb|kebiao|timetable|schedule|xskb|curriculum)\b|kbcx|kcbcx|xskb/i.test(url)
 }

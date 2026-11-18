@@ -9,6 +9,7 @@ import type { School } from '../domain/edu/schools'
 import { detectSystem, isTimetablePage } from '../domain/edu/systems'
 import { parseZfKbList, termLabel, type ZfKb, type ZfTerm } from '../domain/edu/zhengfang'
 import { parseQzTable, qzTermLabel } from '../domain/edu/qiangzhi'
+import { parseCustPayload } from '../domain/edu/cust'
 import { parseHtml } from '../domain/importers/html'
 import { normalize, type NormalizedCourse, type RuleOutput } from '../domain/importer'
 import { uid } from '../domain/store'
@@ -33,6 +34,8 @@ export interface EduSync extends EduSyncSource {
   lastResult: EduSyncResult | ''
   lastChanges: number
   failStreak: number
+  /** 上次的失败原因（页面停在哪、接口说了什么），给设置页排错用 */
+  lastMessage?: string
 }
 
 export interface SyncOutcome {
@@ -45,7 +48,7 @@ export interface SyncOutcome {
 
 const KEY = 'tt.edu.sync'
 const PAGE_TIMEOUT = 45_000
-const RESUME_GAP = 6 * 3600_000
+const RESUME_GAP = 10 * 60_000
 /** 连续失效几次后自动关闭 */
 const MAX_EXPIRED = 3
 
@@ -175,11 +178,13 @@ function finish(s: EduSync, result: EduSyncResult, message?: string, changes = 0
   const failStreak = result === 'expired' ? s.failStreak + 1 : result === 'error' ? s.failStreak : 0
   let enabled = s.enabled
   let note: string | undefined
-  if (failStreak >= MAX_EXPIRED && enabled) {
+  /* 长理是能留住登录态的：失效只代表这次要重新登录，不该把开关关掉，
+     否则用户第二天打开就发现「自动更新」自己关了 */
+  if (failStreak >= MAX_EXPIRED && enabled && s.school.system !== 'cust') {
     enabled = false
     note = '该学校不支持保持登录，已关闭自动更新'
   }
-  save({ ...s, enabled, lastAt: Date.now(), lastResult: result, lastChanges: changes, failStreak })
+  save({ ...s, enabled, lastAt: Date.now(), lastResult: result, lastChanges: changes, failStreak, lastMessage: message })
   return { result, changes, message, note }
 }
 
@@ -215,6 +220,11 @@ async function doSync(): Promise<SyncOutcome> {
       out = parseQzTable(r.html)
       if (r.filtered && !r.refetched) out.diagnostics.push({ level: 'warn', code: 'WEEK_FILTERED', message: '周次筛选没有重置成功，课表可能不完整' })
       if (r.term) out.semester = { name: qzTermLabel(r.term) }
+    } else if (sys === 'cust') {
+      const raw = await edu.bgCustFetch()
+      /* 会话失效时接口回 state:2，脚本把原因放在 reason 里（不抛错），据此判「需要重新登录」 */
+      if (!raw.records?.length) return finish(s, raw.reason && /超时|过期|登录/i.test(raw.reason) ? 'expired' : 'error', raw.reason)
+      out = parseCustPayload(raw)
     } else {
       out = parseHtml(await edu.bgPageHtml(), { mode: 'grid' })
     }
@@ -252,14 +262,17 @@ export function syncNow(): Promise<SyncOutcome> {
   return running
 }
 
+/** 刚同步过这么久之内，启动时不再重复跑 */
+let triedThisLaunch = false
 export const eduSyncing = () => running !== null
-
-/** 回前台静默检查：开着、距上次超过 6 小时、上次不是失效 */
 export function resumeSync(): Promise<SyncOutcome> | null {
   const s = load()
   if (!s || !s.enabled || browserOpen || running) return null
-  if (s.lastResult === 'expired') return null
+  /* 一次启动只自动试一次：失败就别反复开后台浏览器 */
+  if (triedThisLaunch) return null
+  /* 十分钟内刚同步过（比如刚导入完）不重复跑 */
   if (Date.now() - s.lastAt < RESUME_GAP) return null
+  triedThisLaunch = true
   return syncNow()
 }
 

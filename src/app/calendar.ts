@@ -46,6 +46,24 @@ const CHUNK = 50
 
 export const calendarSupported = () => Capacitor.getPlatform() === 'android'
 
+/* 自动弹过「加进手机日历」就不再自动弹：有人就是不想往系统日历里写。
+   手动入口一直在 设置 → 提醒 → 同步至系统日历，随时能开回来。 */
+const ASKED_KEY = 'tt.cal.asked'
+export const calendarIntroAsked = () => {
+  try {
+    return localStorage.getItem(ASKED_KEY) === '1'
+  } catch {
+    return true
+  }
+}
+export const markCalendarIntroAsked = () => {
+  try {
+    localStorage.setItem(ASKED_KEY, '1')
+  } catch {
+    /* 隐私模式写不进去：下次再问一次也不致命 */
+  }
+}
+
 /* ---------------- 状态（给设置页） ---------------- */
 
 export interface CalendarStatus {

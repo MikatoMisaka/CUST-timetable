@@ -83,6 +83,9 @@ public final class WidgetRender {
             case "week":
                 week(ctx, v, p, data, today, now);
                 break;
+            case "mini":
+                mini(ctx, v, p, data, today, now);
+                break;
             default:
                 todayList(ctx, v, p, data, today, now);
         }
@@ -109,6 +112,7 @@ public final class WidgetRender {
             case "next": return R.layout.widget_next;
             case "twoDays": return R.layout.widget_two_days;
             case "week": return R.layout.widget_week;
+            case "mini": return R.layout.widget_mini;
             default: return R.layout.widget_today;
         }
     }
@@ -122,6 +126,11 @@ public final class WidgetRender {
 
     private static int id(Context ctx, String name) {
         return ctx.getResources().getIdentifier(name, "id", ctx.getPackageName());
+    }
+
+    /** 色板最后一位是灰，落在小卡上等于没颜色，换成主题色 */
+    private static int vivid(int color, Palette p) {
+        return (color & 0xFFFFFF) == 0x8A8E97 ? p.accent : color;
     }
 
     private static List<Item> live(Day d) {
@@ -305,6 +314,82 @@ public final class WidgetRender {
             v.setTextViewText(R.id.w_unit, "分钟后");
         }
         row(ctx, v, p, "row", 0, nx, false, null);
+    }
+
+    /* ---------------- 2×2 小卡 ---------------- */
+
+    /**
+     * 两格见方的小卡：上面两行是「接下来要上的两节课」（上课中的排第一），底下压一行倒计时。
+     * 行样式直接复用课程行 row()，所以课程色条、浅底、上课中描边都跟大组件一致。
+     */
+    private static void mini(Context ctx, RemoteViews v, Palette p, Data data, String today, long now) {
+        v.setTextViewText(R.id.w_week, data != null && data.week > 0 ? "第 " + data.week + " 周" : "");
+        Day d = data != null ? data.day(today) : null;
+        List<Item> items = live(d);
+        Item cur = current(items, now);
+        List<Item> show = new ArrayList<>();
+        String dayOfFirst = today;
+        if (cur != null) show.add(cur);
+        for (Item it : items) if (show.size() < 2 && it.startAt > now) show.add(it);
+        if (show.size() < 2) {
+            Day nd = nextClassDay(data, today);
+            if (nd != null) {
+                List<Item> its = live(nd);
+                if (show.isEmpty()) dayOfFirst = nd.date;
+                for (Item it : its) if (show.size() < 2) show.add(it);
+            }
+        }
+        if (show.isEmpty()) {
+            v.setTextViewText(R.id.w_label, "近期没课");
+            v.setTextColor(R.id.w_label, p.ink3);
+            v.setViewVisibility(R.id.row0, View.GONE);
+            v.setViewVisibility(R.id.row1, View.GONE);
+            v.setViewVisibility(R.id.w_num, View.GONE);
+            v.setTextViewText(R.id.w_unit, emptyReason(data, today));
+            return;
+        }
+        v.setTextViewText(R.id.w_label, cur != null ? "接下来"
+                : (dayOfFirst.equals(today) ? "今天" : dayName(today, dayOfFirst)));
+        v.setTextColor(R.id.w_label, p.accent);
+        for (int i = 0; i < 2; i++) {
+            Item it = i < show.size() ? show.get(i) : null;
+            row(ctx, v, p, "row", i, it, it != null && it == cur, null);
+        }
+        // 小卡不留时间列，节次时间并进第二行，课名才能占满整行
+        for (int i = 0; i < show.size(); i++) {
+            Item it = show.get(i);
+            String where = it.loc.isEmpty() ? it.teacher : it.loc;
+            String meta = it.start.isEmpty() ? where : (where.isEmpty() ? it.start : it.start + " · " + where);
+            int locId = id(ctx, "row" + i + "_loc");
+            v.setTextViewText(locId, meta);
+            v.setViewVisibility(locId, meta.isEmpty() ? View.GONE : View.VISIBLE);
+            // 小卡地方小，课程色铺得比大组件重一点，才看得出这是哪门课
+            int c = vivid(it.color, p);
+            v.setInt(id(ctx, "row" + i + "_bg"), "setColorFilter", p.tint(c, 16));
+            v.setInt(id(ctx, "row" + i + "_ring"), "setColorFilter", it == cur ? c : p.tint(c, 16));
+            v.setInt(id(ctx, "row" + i + "_bar"), "setColorFilter", c);
+        }
+        // 整张卡也跟着第一节课的色走一层极淡的底，不再是死白
+        v.setInt(R.id.widget_root_bg, "setColorFilter", p.tint(vivid(show.get(0).color, p), 8));
+        v.setViewVisibility(R.id.w_num, View.VISIBLE);
+        v.setViewVisibility(R.id.w_unit, View.VISIBLE);
+        Item first = show.get(0);
+        if (first == cur) {
+            v.setTextViewText(R.id.w_num, String.valueOf(Math.max(1, (cur.endAt - now) / 60000)));
+            v.setTextViewText(R.id.w_unit, "分钟后下课");
+            return;
+        }
+        long mins = (first.startAt - now) / 60000;
+        if (mins >= 24 * 60) {
+            v.setTextViewText(R.id.w_num, String.valueOf(WidgetStore.daysBetween(today, WidgetStore.localDate(first.startAt))));
+            v.setTextViewText(R.id.w_unit, "天后");
+        } else if (mins >= 60) {
+            v.setTextViewText(R.id.w_num, String.valueOf(mins / 60));
+            v.setTextViewText(R.id.w_unit, (mins % 60 == 0 ? "小时后" : "小时 " + mins % 60 + " 分后"));
+        } else {
+            v.setTextViewText(R.id.w_num, String.valueOf(Math.max(1, mins)));
+            v.setTextViewText(R.id.w_unit, "分钟后");
+        }
     }
 
     /* ---------------- 今天与明天 ---------------- */

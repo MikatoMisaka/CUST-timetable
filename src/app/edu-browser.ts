@@ -1,6 +1,7 @@
 import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core'
 import { PAGE_CAPTURE_JS, PAGE_HTML_JS, PAGE_TEXT_JS, PROBE_JS, QZ_TABLE_JS, wrapRun, zfFetchJs, type PageCapture, type ProbeResult, type QzTableResult } from '../domain/edu/scripts'
 import type { ZfKb } from '../domain/edu/zhengfang'
+import { custFetchJs, type CustPayload } from '../domain/edu/cust'
 import { uid } from '../domain/store'
 
 /**
@@ -184,6 +185,9 @@ export const edu = {
   /** 强智：找框架里的 kbtable，可能要等框架加载（脚本内最多等 12s + 补抓） */
   qzTable: () => run<QzTableResult>(QZ_TABLE_JS, 30_000),
   bgQzTable: () => run<QzTableResult>(QZ_TABLE_JS, 30_000, true),
+  /** 长理：调课表 JSON 接口（页面首次渲染不发请求，接口数据比页面全） */
+  custFetch: () => run<CustPayload>(custFetchJs()),
+  bgCustFetch: () => run<CustPayload>(custFetchJs(), RUN_TIMEOUT, true),
   pageHtml: () => run<string>(PAGE_HTML_JS),
   pageText: () => run<string>(PAGE_TEXT_JS),
   /** 调试包：主文档与同源子框架的 HTML 及编码信息 */

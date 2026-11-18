@@ -71,6 +71,7 @@ describe('教务系统指纹', () => {
     expect(detectSystem('https://jwglxt.sdu.edu.cn/jwglxt/xtgl/index_initMenu.html')).toBe('zhengfang_new')
     expect(detectSystem('http://jwxt.xxx.edu.cn/jsxsd/framework/xsMain.jsp')).toBe('qiangzhi')
     expect(detectSystem('http://jw.xxx.edu.cn/', 'urp')).toBe('urp')
+    expect(detectSystem('https://jwgl.cust.edu.cn/Student')).toBe('cust')
     expect(detectSystem('http://jw.xxx.edu.cn/')).toBeNull()
   })
 
@@ -78,6 +79,9 @@ describe('教务系统指纹', () => {
     expect(isTimetablePage('zhengfang_new', 'https://x/jwglxt/kbcx/xskbcx_cxXskbcxIndex.html?gnmkdm=N2151&layout=default', '')).toBe(true)
     expect(isTimetablePage('zhengfang_new', 'https://x/jwglxt/xtgl/index_initMenu.html', '课表')).toBe(false)
     expect(isTimetablePage('qiangzhi', 'http://x/jsxsd/xskb/xskb_list.do', '学生个人课表')).toBe(true)
+    /* 长理课表页标题不带「课表」二字，只能认 /Student */
+    expect(isTimetablePage('cust', 'https://jwgl.cust.edu.cn/Student', '教学信息一体化服务平台')).toBe(true)
+    expect(isTimetablePage('cust', 'https://jwgl.cust.edu.cn/Login', '统一身份认证')).toBe(false)
     expect(isTimetablePage(null, 'http://x/login', '统一身份认证')).toBe(false)
   })
 
@@ -88,21 +92,24 @@ describe('教务系统指纹', () => {
 })
 
 describe('学校索引', () => {
-  it('内置索引非空，可按名字与网址搜索', () => {
-    expect(schoolCount()).toBeGreaterThan(1000)
-    const r = searchSchools('山东大学')
-    expect(r[0].name).toBe('山东大学')
+  it('本分支只保留长春理工大学，可按名字与网址搜索', () => {
+    expect(schoolCount()).toBe(1)
+    const r = searchSchools('长春理工')
+    expect(r[0].name).toBe('长春理工大学')
+    expect(r[0].system).toBe('cust')
     expect(r[0].url).toMatch(/^https?:\/\//)
-    expect(searchSchools('sdu.edu.cn').length).toBeGreaterThan(0)
+    /* 入口必须是一站式门户的「本科教学平台」跳转链接：直连 jwgl 换来的会话没有身份 */
+    expect(r[0].url).toContain('portal.cust.edu.cn/custp/x/to?siteId=')
+    expect(searchSchools('portal.cust.edu.cn').length).toBeGreaterThan(0)
     expect(searchSchools('')).toEqual([])
   })
 
   it('输入网址时补协议；同主机可回查学校', () => {
-    expect(urlFromQuery('jwglxt.sdu.edu.cn/jwglxt')).toBe('http://jwglxt.sdu.edu.cn/jwglxt')
+    expect(urlFromQuery('jwgl.cust.edu.cn/Student')).toBe('http://jwgl.cust.edu.cn/Student')
     expect(urlFromQuery('https://a.b.edu.cn')).toBe('https://a.b.edu.cn')
-    expect(urlFromQuery('山东')).toBeNull()
-    const s = searchSchools('浙江大学')[0]
-    expect(schoolByUrl(s.url)?.name).toBe('浙江大学')
+    expect(urlFromQuery('长春')).toBeNull()
+    const s = searchSchools('长春理工大学')[0]
+    expect(schoolByUrl(s.url)?.name).toBe('长春理工大学')
   })
 })
 

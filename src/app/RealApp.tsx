@@ -35,7 +35,7 @@ import { enableEduSync, eduSyncing, logoutEduSync, outcomeText, resumeSync, setE
 import type { School } from '../domain/edu/schools'
 import { Sticker, setStickersOn, stickerTilt, useStickersOn } from './Sticker'
 import { CalendarIntroPage, NotifPrefPage, PrefPickPage, WidgetPage, taskLeadsText, type PrefKey } from './reminder'
-import { calendarPermission, calendarSupported, clearCalendar, scheduleCalendarSync, syncCalendar } from './calendar'
+import { calendarIntroAsked, calendarPermission, calendarSupported, clearCalendar, markCalendarIntroAsked, scheduleCalendarSync, syncCalendar } from './calendar'
 import { copyText, haptic, nativeConfirm, nativeToast, pasteText, syncWidgets } from './widgets'
 import { onIncomingIcs, shareIcs } from './files'
 import { THEME_LABEL, resolve, setDynamic, setTheme, useDynamic, useTheme, type ThemePref } from './theme'
@@ -2523,6 +2523,10 @@ export default function RealApp() {
     }
     run()
     const off = store.subscribe(run)
+    /* 冷启动也算「打开应用」：resume 事件只在后台切回前台时才来 */
+    void resumeSync()?.then((o) => {
+      if (o.result === 'ok' || o.note) nativeToast(outcomeText(o))
+    })
     const onResume = CapApp.addListener('resume', () => {
       void syncCalendar()
       void syncWidgets()
@@ -2661,15 +2665,18 @@ export default function RealApp() {
     setOnboarded(true)
   }, [onboardUnder, stack.length])
 
-  /* 有课表、还没拿到日历权限：每次启动推一次「加进手机日历」，拿到后全自动 */
+  /* 有课表、还没拿到日历权限：只在第一次进应用时问一次，问过就不再自动弹 */
   const calAsked = useRef(false)
   useEffect(() => {
     if (!onboarded || onboardUnder || stack.length > 0 || !calendarSupported() || calAsked.current) return
     if (state.courses.length === 0) return
+    if (calendarIntroAsked()) return
     let alive = true
     void calendarPermission().then((p) => {
       if (!alive) return
       calAsked.current = true
+      /* 问过一次就记账：不想同步的人不用每次打开都挨一遍 */
+      markCalendarIntroAsked()
       if (p === 'granted') void syncCalendar()
       else setStack((s) => (s.length === 0 ? [{ k: 'calendarIntro' }] : s))
     })

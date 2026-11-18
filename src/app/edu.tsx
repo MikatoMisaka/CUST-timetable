@@ -5,10 +5,11 @@ import type { NormalizedCourse, RuleOutput } from '../domain/importer'
 import type { RuleManifest } from '../domain/rules'
 import { parseHtml } from '../domain/importers/html'
 import { SYSTEM_LABEL, detectSystem, hostOf, isTimetablePage, scrubUrl, type EduSystemId } from '../domain/edu/systems'
-import { schoolByUrl, searchSchools, urlFromQuery, type School } from '../domain/edu/schools'
+import { allSchools, schoolByUrl, searchSchools, urlFromQuery, type School } from '../domain/edu/schools'
 import { zfTermOptions, type PageCapture, type ProbeResult } from '../domain/edu/scripts'
 import { parseZfKbList, termLabel, type ZfTerm } from '../domain/edu/zhengfang'
 import { parseQzTable, qzTermLabel } from '../domain/edu/qiangzhi'
+import { parseCustPayload } from '../domain/edu/cust'
 import { LATEST_RELEASE_API, RELEASES_URL, isNewer, issueUrl } from '../domain/edu/release'
 import { DEBUG_MIME, buildDebugPackage } from '../domain/edu/debug'
 import { edu, nativeEdu, type EduNav } from './edu-browser'
@@ -95,7 +96,8 @@ export function EduSchoolPage({ onBack, onOpen }: { onBack: () => void; onOpen: 
   const results = useMemo(() => searchSchools(q), [q])
   const url = urlFromQuery(q)
   const direct = useMemo<School | null>(() => (url ? (schoolByUrl(url) ?? { name: hostOf(url), system: null, url }) : null), [url])
-  const list = typing ? [...(direct ? [direct] : []), ...results.filter((s) => s.url !== direct?.url)] : recent
+  /* 索引里只有本校，还没打开过任何学校时直接把长理列出来，不用先打字 */
+  const list = typing ? [...(direct ? [direct] : []), ...results.filter((s) => s.url !== direct?.url)] : recent.length > 0 ? recent : allSchools()
 
   const pick = (s: School) => {
     rememberSchool(s)
@@ -199,6 +201,7 @@ type Ready =
   | { kind: 'table' }
   | { kind: 'zf'; zf: NonNullable<ProbeResult['zf']>; count: number | null }
   | { kind: 'qz' }
+  | { kind: 'cust'; count: number | null }
 
 const HTML_CLASS = 'tt-edu'
 
@@ -366,6 +369,13 @@ export function EduBrowserPage({ school, active, onBack, onImport, onFail }: {
     let alive = true
     void (async () => {
       try {
+        /* 长理不走 DOM 探测：课表接口的数据比页面全（每格只显示第一门课），直接调接口取门数 */
+        if (sys === 'cust') {
+          setReady({ kind: 'cust', count: null })
+          const out = parseCustPayload(await edu.custFetch())
+          if (alive && probed.current === nav.url) setReady({ kind: 'cust', count: out.courses.length || null })
+          return
+        }
         const waits = sys === 'qiangzhi' ? [0, 2000, 5000, 9000, 14000] : [0]
         let p: ProbeResult | null = null
         for (const w of waits) {
@@ -484,6 +494,17 @@ export function EduBrowserPage({ school, active, onBack, onImport, onFail }: {
     }
   }
 
+  const importCust = async () => {
+    setBusy(true)
+    try {
+      await finish(parseCustPayload(await edu.custFetch()))
+    } catch {
+      await fail()
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const exportDebug = async () => {
     try {
       const [capture, probe] = await Promise.all([edu.capture(), edu.probe().catch(() => null)])
@@ -497,6 +518,7 @@ export function EduBrowserPage({ school, active, onBack, onImport, onFail }: {
     if (busy || ready.kind === 'none') return
     if (ready.kind === 'zf') setSheet(true)
     else if (ready.kind === 'qz') void importQz()
+    else if (ready.kind === 'cust') void importCust()
     else void importGeneric()
   }
 
@@ -504,7 +526,7 @@ export function EduBrowserPage({ school, active, onBack, onImport, onFail }: {
     ? '证书错误，无法打开'
     : nav.error
       ? '页面打不开'
-      : ready.kind === 'zf' && ready.count !== null
+      : (ready.kind === 'zf' || ready.kind === 'cust') && ready.count !== null
         ? `导入 ${ready.count} 门课`
         : '导入课表'
   const secure = /^https:/i.test(nav.url)

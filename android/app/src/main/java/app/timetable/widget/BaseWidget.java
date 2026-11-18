@@ -28,7 +28,7 @@ public abstract class BaseWidget extends AppWidgetProvider {
     }
 
     public static final Class<?>[] PROVIDERS = {
-            TodayWidget.class, NextWidget.class, TwoDaysWidget.class, WeekWidget.class,
+            TodayWidget.class, NextWidget.class, TwoDaysWidget.class, WeekWidget.class, MiniWidget.class,
     };
 
     /** 课表、待办或时间变了就整体重画 */

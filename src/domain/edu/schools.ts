@@ -1,7 +1,8 @@
 import raw from './schools.json'
 import { isEduSystem, type EduSystemId } from './systems'
 
-/** 学校索引：名称、系统、教务入口。数据来自 baoozak/timetable（MIT），随应用打包，不在线更新 */
+/** 学校索引：名称、系统、教务入口。数据来自 baoozak/timetable（MIT），随应用打包，不在线更新。
+ *  本分支只保留长春理工大学，其余院校已删除。 */
 export interface School {
   name: string
   system: EduSystemId | null
@@ -15,6 +16,9 @@ const ALL: School[] = (raw as [string, string, string][]).map(([name, sys, url])
 }))
 
 export const schoolCount = () => ALL.length
+
+/** 全部内置学校（只有一所，用于还没搜索过时的候选列表） */
+export const allSchools = (): School[] => ALL
 
 const looksLikeUrl = (q: string) => /^(https?:\/\/)?[\w.-]+\.[a-z]{2,}(\/|$)/i.test(q) || /^https?:\/\//i.test(q)
 
