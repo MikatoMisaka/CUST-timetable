@@ -2,146 +2,75 @@
 
 # 嘎嘎课程表 · 长春理工大学特化版
 
-**fork 自 [shuakami/timetable](https://github.com/shuakami/timetable)，只服务长春理工大学（CUST）。**
+**你的课表，理应如此。**
+
+今天 / 周视图 / 待办 / 冲突处理 / 变更记录 / 教务一键导入 / 桌面小组件
 
 <a href="https://github.com/MikatoMisaka/CUST-timetable/releases/latest"><img src="docs/download-android.svg" alt="下载 Android 安装包" /></a>
 
-> 这不是上游项目，改动都在下面列清楚了。上游支持 1188 所学校，本分支**只保留长春理工大学**，并为它单独写了教务适配器和一款 2×2 小组件。
+基于 [嘎嘎课程表](https://github.com/shuakami/timetable)，只保留长春理工大学一所学校，并新增一款 2×2 桌面小组件。
 
-## 目录
+## 功能
 
-- [本分支改了什么](#本分支改了什么)
-- [安装](#安装)
-- [自己构建](#自己构建)
-- [已知问题](#已知问题)
-- [上游功能](#上游功能)
-- [许可](#许可)
+**今天**
+- 按节次排布的当日时间线，已结束、上课中（剩余分钟）、下一节倒计时一目了然
+- 明天预览；周六日、假期、学期外各有独立空状态
+- 底部日期条搭配从底部滑出的月历面板，与学期周次对齐
 
-## 本分支改了什么
+**课表**
+- 周视图网格，正在上的课高亮，单双周、假期、考试周均有标注
+- 时间重叠自动检测，支持「都保留」或「只留一门」，被隐藏的课可随时恢复
+- 长按课程卡片：静音本节、标记已上、请假一次、查看变更记录、编辑、停课
 
-### 1. 新增长春理工大学教务适配器
+**课程**
+- 详情页展示下次上课时间、地点、老师、上课日、考核方式、提醒、学期进度、出勤、作业与备忘
+- 编辑时可选生效范围「仅本次」或「每周」，可调整状态、时间、地点、老师、备注、颜色
+- 单节改动与常规课表分离，每次修改留一条变更记录，支持撤销
 
-文件：`src/domain/edu/cust.ts`（约 410 行，无运行时依赖）
+**导入**
+- **长春理工大学教务一键导入**：选学校 → 学校统一身份认证登录 → 停在课表页点导入，自动读出整学期课表
+- 调课会单独标记；同一门课不同周次、集中实践课跨多个节次都能正确合并
+- 也支持 JSON、Excel（xlsx）、ICS、CSV，以及「让 AI 转换课表」：复制 Prompt 把课表截图或文字交给任意 AI，粘回 JSON 即可导入
+- 导入前逐条预览新增、变化、无法解析的条目；重复导入做三方合并，手动改过的字段不被覆盖
+- 分享课表：导出标准 .ics，对方在任何日历应用里都能打开
 
-**取数入口**（这一步踩了很久）：必须从学校一站式门户进——
+**待办**
+- 作业、考试、自定义待办，可挂在课程上，按今天、近期、已完成分组
 
-```
-https://portal.cust.edu.cn/custp/x/to?siteId=d11c3e894ffa410ca9d4786287298714
-  → https://jwgl.cust.edu.cn/Student
-```
+**提醒与小组件**
+- 课程、作业、考试同步至系统日历：每门课一本日历、沿用课程颜色，提醒交给系统日历
+- 停课、请假的那节保留在日历里（标题带标注，不提醒）；老师电话写在事件描述里可直接拨号
+- **5 款桌面小组件**：今日、下一节、两日、本周，以及专为长理加的 **2×2「下节小卡」**——接下来两节课 + 课程配色 + 倒计时，塞进桌面角落刚好
+- 跟随系统深浅色
 
-直接开 `jwgl.cust.edu.cn/Student` 也能走完 CAS，换出来的票**没有身份**：`localStorage.STUDENT_DTO` 是字符串 `"null"`，课表接口回 `{"state":2,"message":"页面超时已过期，请重新登录!"}`。门户那条 `x/to` 才是带身份的入口。
-
-**为什么调接口而不是解析页面**：课表页首次渲染**不发任何 XHR**，数据是服务端直接渲染进 HTML 的；而且每个格子只显示第一门课，其余折叠在「查看更多」后面。所以适配器在页面里注入脚本，直接 `POST /api/ClientStudent/Home/StudentHomeApi/QueryStudentScheduleData`：
-
-```jsonc
-{
-  "param": "<base64(encodeURIComponent(JSON))>",   // {} 即可，不用传校区
-  "__permission": { "MenuID": "00000000-0000-0000-0000-000000000000", "Operate": "select", "Operation": 0 },
-  "__log": { "MenuID": "00000000-0000-0000-0000-000000000000", "Logtype": 6, "Context": "查询" }
-}
-```
-
-返回 48 KB JSON，`data.AdjustDays[0..6]` 是周一到周日，每天按 `MN/AM/AF/PM/EV__TimePieces` 分块，每块里 `Dtos[]` 一条课：`LessonOccupyID`、`Content[{Key:Lesson|Teacher|Room|Time}]`、`QueryType`。
-
-几处必须处理的细节：
-
-- **合并**：集中实践课一条 `LessonOccupyID` 会同时出现在同一天的 1-2/3-4/5-6/7-8 四个格子里，按 `id|weekday|time` 合并成 1-8 节。
-- **作息表**：`grid` 连**空节次块**一起收。否则学生没选晚课时，作息只到第 8 节，第 9-12 节的课会被课表引擎判 `PERIOD_OUT_OF_GRID` 整条丢掉。
-- **单双周**：上游 `parseWeekExpr` 的单/双标记是整串全局生效，适配器改成**按段展开**再输出。
-- **调课**：`QueryType === 1` 记成 `ADJUSTED` 诊断，页面上对应那个 `[调]` 徽标。
-- **会话失效**：接口回 `state:2` 时转成 `expired`，让上层提示重新登录，而不是报解析错误。
-
-诊断码：`FETCH_FAILED` `EMPTY` `BAD_SLOT` `UNPARSED_WEEKS` `WEEKS_PARTIAL` `ADJUSTED` `NO_GRID`。
-
-### 2. 只保留一所学校
-
-`src/domain/edu/schools.json` 从 1188 行砍到 1 行：
-
-```json
-[["长春理工大学", "cust", "https://portal.cust.edu.cn/custp/x/to?siteId=d11c3e894ffa410ca9d4786287298714"]]
-```
-
-想加回别的学校，把上游那份 `schools.json` 对应行粘回来即可，适配器是通用的。
-
-改动同时接进了：`src/domain/edu/systems.ts`（`EduSystemId` 加 `'cust'`、`SYSTEM_LABEL`、`SCRIPTED`、`URL_MARKS`、`isTimetablePage`）、`src/app/edu-browser.ts`（`custFetch`）、`src/app/edu.tsx`（探测 + 导入 + 学校页回落）、`src/app/edu-sync.ts`（自动更新分支）。
-
-### 3. 新增 2×2 桌面小组件「下节小卡」
-
-- `android/app/src/main/java/app/timetable/widget/MiniWidget.java`
-- `android/app/src/main/res/layout/widget_mini.xml`、`res/xml/widget_mini.xml`
-
-显示**接下来两节课**（正在上的课优先）+ 课程配色 + 倒计时。上游 4 款组件都是 150dp，桌面按 `ceil((dp+30)/70)` 折算成 3 格，看着就不是 2×2 —— 真正的 2 格是 **110dp**。
-
-### 4. 修掉的坑
-
-| 问题 | 现象 | 改动 |
-|---|---|---|
-| 内置浏览器被盖住 | 登录页能点能输入但一片白 | 原生 WebView 在应用 WebView 下层，「课表来源」页的路由容器背景不透明且带 inline `visibility: visible`，`src/index.css` 的隐藏规则加了 `!important` 并连后代一起隐藏 |
-| 每次启动都问要不要同步日历 | 用户不想同步也被反复打扰 | `src/app/calendar.ts` 加 `tt.cal.asked` 标记，只在首次进应用问一次；`src/app/reminder.tsx` 底部加「以后再说」 |
-| 自动更新形同虚设 | 开关开着但从不更新 | `src/app/edu-sync.ts`：去掉「上次 `expired` 就再也不试」的短路、`RESUME_GAP` 由 6 小时改 10 分钟、冷启动也试一次；长理能留住登录态，不再因为连续过期被自动关掉开关 |
-| 应用名 | 还叫「嘎嘎课程表」 | 改为「嘎嘎课程表-CUST特化版」（`strings.xml`、`index.html`、`Onboarding.tsx`） |
-
-### 5. 测试
-
-- `src/domain/__tests__/cust.test.ts`：13 个用例，用 `new Function(...)` 把注入脚本拉出来喂假 DOM + 真实 JSON，不联网
-- `src/domain/__tests__/edu.test.ts`：学校索引相关断言改成本分支事实
-
-`npm run check` 全过：**22 files / 215 tests**。
+**Android**
+- 日期、时间、下拉选择使用系统原生对话框
+- Android 13+ 主题图标、自适应开屏、边到边加安全区
+- 系统返回键依次关闭菜单或面板、出栈、回到「今天」、两次返回退出
 
 ## 安装
 
 从 [Releases](https://github.com/MikatoMisaka/CUST-timetable/releases) 下载 APK。
 
-> **先卸载官方嘎嘎课程表**。两者签名不同，覆盖安装会提示签名冲突。卸载会清空 App 数据，课表要重新导入一次。
+> 与官方嘎嘎课程表签名不同，**安装前请先卸载原版**，否则提示签名冲突。卸载会清空 App 数据，课表需重新导入。
 
-- 最低 Android 7.0（minSdk 24），targetSdk 36
-- 首次导入：我的 → 课表来源 → 长春理工大学 → 走学校统一身份认证（学号 + 密码 + 图形验证码 + 短信/企业微信二次验证）→ 落到课表页 → 点「导入」
+- Android 7.0 及以上（minSdk 24）
+- 首次使用：我的 → 课表来源 → 长春理工大学 → 登录统一身份认证（学号 + 密码 + 验证码 + 短信/企业微信二次验证）→ 停在课表页 → 点「导入」
+
+教务会话在学校服务端约两小时失效，隔天再打开可能需要重新登录导入一次。
 
 ## 自己构建
 
 ```bash
-# Node 22+, JDK 21, Android SDK 36（platforms;android-36 + build-tools;36.0.0）
+# Node 22+, JDK 21, Android SDK 36
 npm ci
-npm run check                # tsc --noEmit && vitest run && vite build
+npm run check
 npm run build && npx cap sync android
 cd android && ./gradlew assembleDebug
-# → android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Windows 下需要设的环境变量：
-
-```powershell
-$env:JAVA_HOME       = 'F:\Java21'
-$env:ANDROID_HOME    = 'F:\Projects\android-sdk'
-$env:GRADLE_USER_HOME= 'F:\Projects\.gradle'
-$env:TZ              = 'UTC'      # 否则几个 ICS 时区用例会挂
-```
-
-打 release 包时补上签名（缺省读 `android/app/release.keystore`）：
-
-```powershell
-$env:KEYSTORE_PATH     = 'F:\Projects\keys\cust-release.jks'
-$env:KEYSTORE_PASSWORD = '…'
-$env:KEY_ALIAS         = 'cust'
-$env:KEY_PASSWORD      = '…'
-cd android && ./gradlew assembleRelease
-```
-
-Gradle 下载慢就换镜像，例如 `https://mirrors.cloud.tencent.com/gradle/gradle-8.14.3-all.zip` 放进 `$GRADLE_USER_HOME/wrapper/dists/…`。
-
-`tools/cdp-probe.mjs` 是调试用的：手机连 ADB 后 `adb forward tcp:9222 localabstract:webview_devtools_remote_<pid>`，就能在电脑上读/截图 App 里的 WebView（`node tools/cdp-probe.mjs <url子串> "<js>" --shot out.png`）。
-
-## 已知问题
-
-1. **自动更新仍会报 `expired`** —— 交互式登录是好的，但后台那条路直接开 `jwgl/Student`，大概率还是落进门户首页自我登出那条分支，需要改成后台也从门户 `x/to` 进。
-2. **会话约 104 分钟失效** —— 学校服务端行为。自动更新只能做到「打开 App 时静默抓一次，失败就提示重新登录」，撑不过长时间后台。
-3. 教务系统在手机上刷新 `/page-timeout` 页无效（桌面端 F5 反而能救），这是学校前端的行为，改不了。
-
-## 上游功能
-
-今天 / 周视图 / 待办 / 冲突处理 / 变更记录 / 多源导入（JSON、xlsx、ICS、CSV、AI 转换）/ 课程贴纸 / 日历同步 / 4 款桌面小组件 —— 这些都来自上游，功能说明见 [shuakami/timetable](https://github.com/shuakami/timetable) 的 README。
+Windows 下需要这些环境变量：`JAVA_HOME`、`ANDROID_HOME`、`GRADLE_USER_HOME`，以及 `TZ=UTC`（否则少数时区用例会挂）。打 release 包再补 `KEYSTORE_PATH` / `KEYSTORE_PASSWORD` / `KEY_ALIAS` / `KEY_PASSWORD`。
 
 ## 许可
 
-GPL-3.0（沿用上游）。基于 [shuakami/timetable](https://github.com/shuakami/timetable) 修改，学校教务索引格式整理自 [baoozak/timetable](https://github.com/baoozak/timetable)（MIT）。
+GPL-3.0。基于 [shuakami/timetable](https://github.com/shuakami/timetable) 修改；学校教务索引格式整理自 [baoozak/timetable](https://github.com/baoozak/timetable)（MIT）。
