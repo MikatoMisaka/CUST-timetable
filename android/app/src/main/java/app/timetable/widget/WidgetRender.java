@@ -328,15 +328,31 @@ public final class WidgetRender {
         List<Item> items = live(d);
         Item cur = current(items, now);
         List<Item> show = new ArrayList<>();
+        // 每一行属于哪天。凑不满两节时会从下一个有课的日子补，
+        // 补进来的那行必须标上日期，否则"今天"里混着下周的课
+        List<String> showDay = new ArrayList<>();
         String dayOfFirst = today;
-        if (cur != null) show.add(cur);
-        for (Item it : items) if (show.size() < 2 && it.startAt > now) show.add(it);
+        if (cur != null) {
+            show.add(cur);
+            showDay.add(today);
+        }
+        for (Item it : items) {
+            if (show.size() < 2 && it.startAt > now) {
+                show.add(it);
+                showDay.add(today);
+            }
+        }
         if (show.size() < 2) {
             Day nd = nextClassDay(data, today);
             if (nd != null) {
                 List<Item> its = live(nd);
                 if (show.isEmpty()) dayOfFirst = nd.date;
-                for (Item it : its) if (show.size() < 2) show.add(it);
+                for (Item it : its) {
+                    if (show.size() < 2) {
+                        show.add(it);
+                        showDay.add(nd.date);
+                    }
+                }
             }
         }
         if (show.isEmpty()) {
@@ -360,6 +376,12 @@ public final class WidgetRender {
             Item it = show.get(i);
             String where = it.loc.isEmpty() ? it.teacher : it.loc;
             String meta = it.start.isEmpty() ? where : (where.isEmpty() ? it.start : it.start + " · " + where);
+            // 和标题不同的那天，前面挂上「明天 / 周一 / 11月23日」
+            String day = i < showDay.size() ? showDay.get(i) : today;
+            if (!day.equals(dayOfFirst)) {
+                String tag = dayName(today, day);
+                meta = meta.isEmpty() ? tag : tag + " " + meta;
+            }
             int locId = id(ctx, "row" + i + "_loc");
             v.setTextViewText(locId, meta);
             v.setViewVisibility(locId, meta.isEmpty() ? View.GONE : View.VISIBLE);
